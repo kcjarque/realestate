@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Send, CheckCheck, Home, Loader2, Inbox } from "lucide-react";
+import { Send, CheckCheck, Home, Loader2, Inbox, PanelLeft, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { useRealtimeList } from "@/lib/hooks/use-realtime-list";
@@ -17,6 +17,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import type { Agent, Inquiry, Listing, Message } from "@/lib/types";
 
 export function AgentWorkspace() {
@@ -63,6 +64,8 @@ export function AgentWorkspace() {
   );
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [recsOpen, setRecsOpen] = useState(false);
   useEffect(() => {
     if (queue.length === 0) {
       setSelectedId(null);
@@ -137,51 +140,98 @@ export function AgentWorkspace() {
   return (
     <div className="flex h-[100dvh] flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between border-b bg-card px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-muted-foreground hover:text-foreground">
+      <header className="flex items-center justify-between gap-2 border-b bg-card px-3 py-2.5 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <Link href="/" className="shrink-0 text-muted-foreground hover:text-foreground">
             <Home className="h-4 w-4" />
           </Link>
-          <Avatar name={agent.name} src={agent.avatar_url} className="h-9 w-9" />
-          <div>
-            <div className="text-sm font-semibold">{agent.name}</div>
-            <div className="text-xs text-muted-foreground">{queue.length} active chat{queue.length === 1 ? "" : "s"}</div>
+          <button
+            onClick={() => setQueueOpen(true)}
+            aria-label="Open queue"
+            className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-muted lg:hidden"
+          >
+            <PanelLeft className="h-4 w-4" />
+            {queue.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                {queue.length}
+              </span>
+            )}
+          </button>
+          <Avatar name={agent.name} src={agent.avatar_url} className="h-9 w-9 shrink-0" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">{agent.name}</div>
+            <div className="text-xs text-muted-foreground">
+              {queue.length} active chat{queue.length === 1 ? "" : "s"}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium ${available ? "text-emerald-600" : "text-muted-foreground"}`}>
+        <div className="flex shrink-0 items-center gap-2">
+          {selected && (
+            <button
+              onClick={() => setRecsOpen(true)}
+              aria-label="Open suggestions"
+              className="inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium text-muted-foreground hover:bg-muted xl:hidden"
+            >
+              <Sparkles className="h-4 w-4 text-violet-500" /> Suggestions
+            </button>
+          )}
+          <span className={`hidden text-xs font-medium sm:inline ${available ? "text-emerald-600" : "text-muted-foreground"}`}>
             {available ? "Available" : "Away"}
           </span>
           <Switch checked={available} onCheckedChange={toggleStatus} aria-label="Toggle availability" />
         </div>
       </header>
 
-      {/* 3-pane workspace */}
-      <div className="grid flex-1 grid-cols-[18rem_1fr_22rem] overflow-hidden">
-        {/* Left: queue */}
-        <aside className="scroll-thin overflow-y-auto border-r bg-card">
-          <div className="border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Your queue
+      {/* Workspace: chat is always a flexible full-width pane. The queue (below lg)
+          and suggestions (below xl) collapse into slide-over drawers. */}
+      <div className="relative flex flex-1 overflow-hidden">
+        {/* Drawer backdrops (each respects its drawer's breakpoint) */}
+        {queueOpen && (
+          <div className="absolute inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setQueueOpen(false)} />
+        )}
+        {recsOpen && (
+          <div className="absolute inset-0 z-20 bg-black/30 xl:hidden" onClick={() => setRecsOpen(false)} />
+        )}
+
+        {/* Left: queue (static on lg+, drawer below) */}
+        <aside
+          className={cn(
+            "scroll-thin absolute inset-y-0 left-0 z-30 w-72 shrink-0 overflow-y-auto border-r bg-card transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0",
+            queueOpen ? "translate-x-0 shadow-xl" : "-translate-x-full",
+          )}
+        >
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your queue</span>
+            <button className="text-muted-foreground hover:text-foreground lg:hidden" onClick={() => setQueueOpen(false)}>
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <QueueList inquiries={queue} selectedId={selectedId} onSelect={setSelectedId} />
+          <QueueList
+            inquiries={queue}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setQueueOpen(false);
+            }}
+          />
         </aside>
 
-        {/* Center: conversation */}
-        <section className="flex min-w-0 flex-col bg-slate-50">
+        {/* Center: conversation (always present, flexible) */}
+        <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
           {selected ? (
             <>
               <div className="flex items-center justify-between gap-2 border-b bg-card px-4 py-2.5">
-                <div className="flex items-center gap-3">
-                  <Avatar name={selected.customer_name} className="h-9 w-9" />
-                  <div>
-                    <div className="text-sm font-semibold">{selected.customer_name}</div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={selected.customer_name} className="h-9 w-9 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{selected.customer_name}</div>
                     <div className="text-xs text-muted-foreground">Customer · {selected.channel}</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-2">
                   <ReassignTimer inquiry={selected} />
                   <Button variant="outline" size="sm" onClick={resolve}>
-                    <CheckCheck className="h-4 w-4" /> Resolve
+                    <CheckCheck className="h-4 w-4" /> <span className="hidden sm:inline">Resolve</span>
                   </Button>
                 </div>
               </div>
@@ -233,20 +283,35 @@ export function AgentWorkspace() {
           )}
         </section>
 
-        {/* Right: recommendations + templates */}
-        <aside className="overflow-hidden border-l bg-card">
-          {selected ? (
-            <RecommendationPanel
-              customerText={customerText}
-              listings={listings}
-              agentName={agent.name}
-              onInsert={insert}
-            />
-          ) : (
-            <div className="p-6 text-center text-sm text-muted-foreground">
-              Suggestions appear here when a conversation is open.
-            </div>
+        {/* Right: recommendations (static on xl+, drawer below) */}
+        <aside
+          className={cn(
+            "absolute inset-y-0 right-0 z-30 flex w-80 shrink-0 flex-col overflow-hidden border-l bg-card transition-transform duration-200 xl:static xl:z-0 xl:translate-x-0",
+            recsOpen ? "translate-x-0 shadow-xl" : "translate-x-full",
           )}
+        >
+          <div className="flex items-center justify-end border-b px-2 py-1.5 xl:hidden">
+            <button className="text-muted-foreground hover:text-foreground" onClick={() => setRecsOpen(false)}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1">
+            {selected ? (
+              <RecommendationPanel
+                customerText={customerText}
+                listings={listings}
+                agentName={agent.name}
+                onInsert={(text) => {
+                  insert(text);
+                  setRecsOpen(false);
+                }}
+              />
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Suggestions appear here when a conversation is open.
+              </div>
+            )}
+          </div>
         </aside>
       </div>
     </div>
