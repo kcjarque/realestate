@@ -8,7 +8,11 @@ import type { Message } from "@/lib/types";
 // stream back over Realtime. A future MessengerChannel would implement the same
 // interface (see channel/index.ts) without touching any UI.
 export class DemoChannel implements Channel {
-  private sb = getSupabaseBrowser();
+  // Lazy: don't construct the Supabase client at module-load (would break the
+  // production build's prerender when env vars aren't present at build time).
+  private get sb() {
+    return getSupabaseBrowser();
+  }
 
   async send(input: SendMessageInput): Promise<Message> {
     const { data, error } = await this.sb
