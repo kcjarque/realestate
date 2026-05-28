@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import { Plus, Search, Pencil, Trash2, Bed, Bath, Maximize2 } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { useRealtimeList } from "@/lib/hooks/use-realtime-list";
+import { fetchData, api } from "@/lib/api";
+import { usePoll } from "@/lib/hooks/use-poll";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { ListingFormDialog } from "./listing-form-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,18 +29,10 @@ const statusVariant: Record<ListingStatus, "success" | "warning" | "muted"> = {
 };
 
 export function ListingsManager() {
-  const sb = getSupabaseBrowser();
-  const { rows, refetch } = useRealtimeList<Listing>(
-    "listings",
-    async () => {
-      const { data } = await sb
-        .from("listings")
-        .select("*")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false });
-      return (data ?? []) as Listing[];
-    },
-    [],
+  const { data, refetch } = usePoll(fetchData, POLL_INTERVAL_MS);
+  const rows = useMemo(
+    () => [...(data?.listings ?? [])].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)),
+    [data],
   );
 
   const [search, setSearch] = useState("");
@@ -79,11 +72,7 @@ export function ListingsManager() {
     if (!deleting) return;
     setDeletingBusy(true);
     try {
-      const { error } = await sb.from("listings").update({ deleted_at: new Date().toISOString() }).eq("id", deleting.id);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
+      await api.deleteListing(deleting.id);
       toast.success("Listing removed");
       setDeleting(null);
       refetch();

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,7 +29,6 @@ export function AgentEditDialog({
   agent: Agent | null;
   onSaved: () => void;
 }) {
-  const sb = getSupabaseBrowser();
   const [name, setName] = useState("");
   const [status, setStatus] = useState<AgentStatus>("available");
   const [saving, setSaving] = useState(false);
@@ -47,16 +46,9 @@ export function AgentEditDialog({
       return;
     }
     setSaving(true);
-    const avatar = (agent?.avatar_url) || `https://i.pravatar.cc/150?u=${encodeURIComponent(name.trim())}`;
     try {
-      const res = agent
-        ? await sb.from("agents").update({ name: name.trim(), status }).eq("id", agent.id)
-        : await sb.from("agents").insert({ name: name.trim(), status, avatar_url: avatar });
-      if (res.error) {
-        toast.error(res.error.message);
-        return;
-      }
-      fetch("/api/reconcile", { method: "POST" }).catch(() => {});
+      if (agent) await api.updateAgent(agent.id, { name: name.trim(), status });
+      else await api.createAgent(name.trim(), status);
       toast.success(agent ? "Agent updated" : "Agent added");
       onSaved();
       onOpenChange(false);

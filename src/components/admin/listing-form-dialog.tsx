@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { STORAGE_BUCKET } from "@/lib/constants";
+import { api, type ListingInput } from "@/lib/api";
 import { LISTING_TYPES, LISTING_STATUSES, type Listing, type ListingStatus, type ListingType } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +71,6 @@ export function ListingFormDialog({
   listing: Listing | null;
   onSaved: () => void;
 }) {
-  const sb = getSupabaseBrowser();
   const [form, setForm] = useState<FormState>(empty);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -90,19 +88,20 @@ export function ListingFormDialog({
     if (!files || files.length === 0) return;
     setUploading(true);
     try {
-      const urls: string[] = [];
-      for (const file of Array.from(files)) {
-        const ext = file.name.split(".").pop() || "jpg";
-        const path = `${crypto.randomUUID()}.${ext}`;
-        const { error } = await sb.storage.from(STORAGE_BUCKET).upload(path, file, { upsert: false });
-        if (error) {
-          toast.error(`Upload failed: ${error.message}`);
-          continue;
-        }
-        const { data } = sb.storage.from(STORAGE_BUCKET).getPublicUrl(path);
-        urls.push(data.publicUrl);
-      }
-      if (urls.length) set("image_urls", [...form.image_urls, ...urls]);
+      const urls = await Promise.all(
+        Array.from(files).map(
+          (file) =>
+            new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(file); // stored inline (data URL) — no external storage needed
+            }),
+        ),
+      );
+      set("image_urls", [...form.image_urls, ...urls]);
+    } catch {
+      toast.error("Could not read image file");
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -135,7 +134,7 @@ export function ListingFormDialog({
       return;
     }
     setSaving(true);
-    const payload = {
+    const payload: ListingInput = {
       title: form.title.trim(),
       type: form.type,
       city: form.city.trim(),
@@ -148,13 +147,8 @@ export function ListingFormDialog({
       image_urls: form.image_urls,
     };
     try {
-      const res = listing
-        ? await sb.from("listings").update(payload).eq("id", listing.id)
-        : await sb.from("listings").insert(payload);
-      if (res.error) {
-        toast.error(res.error.message);
-        return;
-      }
+      if (listing) await api.updateListing(listing.id, payload);
+      else await api.createListing(payload);
       toast.success(listing ? "Listing updated" : "Listing added");
       onSaved();
       onOpenChange(false);

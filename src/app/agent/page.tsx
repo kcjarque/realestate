@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Home, ArrowRight } from "lucide-react";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { fetchData } from "@/lib/api";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type { Agent } from "@/lib/types";
@@ -12,11 +12,7 @@ export default function AgentPicker() {
   const [agents, setAgents] = useState<Agent[]>([]);
 
   useEffect(() => {
-    getSupabaseBrowser()
-      .from("agents")
-      .select("*")
-      .order("name")
-      .then(({ data }) => setAgents((data ?? []) as Agent[]));
+    fetchData().then((d) => setAgents([...d.agents].sort((a, b) => a.name.localeCompare(b.name))));
   }, []);
 
   return (

@@ -3,86 +3,42 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Send, Loader2, CheckCircle2 } from "lucide-react";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { demoChannel } from "@/lib/channel/demo-channel";
+import { api, fetchData, fetchMessages } from "@/lib/api";
+import { usePoll } from "@/lib/hooks/use-poll";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { MessageList } from "./message-list";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Agent, Inquiry, Message } from "@/lib/types";
+import type { Message } from "@/lib/types";
 
 export function CustomerChat() {
   const params = useParams();
   const sessionId = String(params.sessionId);
-  const sb = getSupabaseBrowser();
 
-  const [inquiry, setInquiry] = useState<Inquiry | null>(null);
-  const [agent, setAgent] = useState<Agent | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { data } = usePoll(fetchData, POLL_INTERVAL_MS);
+  const inquiry = data?.inquiries.find((i) => i.session_id === sessionId) ?? null;
+  const agent = inquiry?.current_agent_id
+    ? data?.agents.find((a) => a.id === inquiry.current_agent_id) ?? null
+    : null;
+
+  // Create the inquiry if landing directly on a session that doesn't exist yet.
+  const creating = useRef(false);
+  useEffect(() => {
+    if (data && !inquiry && !creating.current) {
+      creating.current = true;
+      api.startInquiry(sessionId, "Guest");
+    }
+  }, [data, inquiry, sessionId]);
+
+  const { data: messagesData, refetch: refetchMessages } = usePoll<Message[]>(
+    () => (inquiry ? fetchMessages(inquiry.id) : Promise.resolve([])),
+    POLL_INTERVAL_MS,
+  );
+  const messages = messagesData ?? [];
+
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const creating = useRef(false);
-
-  // Resolve (or create) the inquiry for this session.
-  useEffect(() => {
-    let cancelled = false;
-    async function ensure() {
-      const { data } = await sb.from("inquiries").select("*").eq("session_id", sessionId).maybeSingle();
-      if (cancelled) return;
-      if (data) {
-        setInquiry(data as Inquiry);
-      } else if (!creating.current) {
-        creating.current = true;
-        await sb.rpc("start_inquiry", { p_session_id: sessionId, p_customer_name: "Guest" });
-        const { data: created } = await sb.from("inquiries").select("*").eq("session_id", sessionId).maybeSingle();
-        if (!cancelled) setInquiry(created as Inquiry);
-      }
-    }
-    ensure();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, sb]);
-
-  // Load messages + subscribe to the message stream and inquiry changes.
-  useEffect(() => {
-    if (!inquiry?.id) return;
-    const inquiryId = inquiry.id;
-
-    sb.from("messages")
-      .select("*")
-      .eq("inquiry_id", inquiryId)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => setMessages((data ?? []) as Message[]));
-
-    const unsub = demoChannel.subscribe(inquiryId, (m) => {
-      setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]));
-    });
-
-    const inqCh = sb
-      .channel(`inquiry:${inquiryId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "inquiries", filter: `id=eq.${inquiryId}` },
-        (payload) => setInquiry(payload.new as Inquiry),
-      )
-      .subscribe();
-
-    return () => {
-      unsub();
-      sb.removeChannel(inqCh);
-    };
-  }, [inquiry?.id, sb]);
-
-  // Keep the assigned-agent card in sync.
-  useEffect(() => {
-    const agentId = inquiry?.current_agent_id;
-    if (!agentId) {
-      setAgent(null);
-      return;
-    }
-    sb.from("agents").select("*").eq("id", agentId).maybeSingle().then(({ data }) => setAgent(data as Agent));
-  }, [inquiry?.current_agent_id, sb]);
 
   async function handleSend() {
     const body = input.trim();
@@ -90,12 +46,8 @@ export function CustomerChat() {
     setSending(true);
     setInput("");
     try {
-      // Reopen a resolved conversation if the customer comes back.
-      if (inquiry.state === "resolved") {
-        await sb.from("inquiries").update({ state: "queued", resolved_at: null }).eq("id", inquiry.id);
-        fetch("/api/reconcile", { method: "POST" }).catch(() => {});
-      }
-      await demoChannel.send({ inquiryId: inquiry.id, senderType: "customer", body });
+      await api.sendMessage(inquiry.id, "customer", body);
+      refetchMessages();
     } finally {
       setSending(false);
     }
@@ -114,7 +66,7 @@ export function CustomerChat() {
             <Avatar name={agent!.name} src={agent!.avatar_url} className="h-10 w-10 border-2 border-white/40" />
           ) : (
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
-              <Loader2 className={connecting || !resolved ? "h-5 w-5 animate-spin" : "h-5 w-5"} />
+              <Loader2 className={resolved ? "h-5 w-5" : "h-5 w-5 animate-spin"} />
             </div>
           )}
           <div className="min-w-0">
@@ -150,7 +102,6 @@ export function CustomerChat() {
           />
         </div>
 
-        {/* Resolved banner */}
         {resolved && (
           <div className="flex items-center gap-2 border-t bg-emerald-50 px-4 py-2 text-xs text-emerald-700">
             <CheckCircle2 className="h-4 w-4" /> This chat was marked resolved. You can still message to reopen it.

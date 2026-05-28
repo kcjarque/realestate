@@ -3,16 +3,16 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Pencil, Users, Inbox, Clock, CheckCircle2, ChevronRight, ExternalLink, AlertTriangle } from "lucide-react";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { useRealtimeList } from "@/lib/hooks/use-realtime-list";
-import { useReconcileTicker } from "@/lib/hooks/use-reconcile";
+import { api, fetchData } from "@/lib/api";
+import { usePoll } from "@/lib/hooks/use-poll";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { AgentEditDialog } from "./agent-edit-dialog";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn, timeAgo, formatClock } from "@/lib/utils";
-import type { Agent, Assignment, AssignmentReason, Inquiry, InquiryState } from "@/lib/types";
+import type { Agent, AssignmentReason, InquiryState } from "@/lib/types";
 
 const reasonLabel: Record<AssignmentReason, string> = {
   initial: "initial",
@@ -27,40 +27,17 @@ const stateVariant: Record<InquiryState, "info" | "success" | "muted"> = {
 };
 
 export function AdminDashboard() {
-  const sb = getSupabaseBrowser();
-  useReconcileTicker(true); // admin board drives the engine while open
-
-  const { rows: agents, refetch: refetchAgents } = useRealtimeList<Agent>(
-    "agents",
-    async () => {
-      const { data } = await sb.from("agents").select("*").order("name");
-      return (data ?? []) as Agent[];
-    },
-    [],
-  );
-  const { rows: inquiries } = useRealtimeList<Inquiry>(
-    "inquiries",
-    async () => {
-      const { data } = await sb.from("inquiries").select("*");
-      return (data ?? []) as Inquiry[];
-    },
-    [],
-  );
-  const { rows: assignments } = useRealtimeList<Assignment>(
-    "assignments",
-    async () => {
-      const { data } = await sb.from("assignments").select("*");
-      return (data ?? []) as Assignment[];
-    },
-    [],
-  );
+  const { data, refetch } = usePoll(fetchData, POLL_INTERVAL_MS);
+  const agents = useMemo(() => data?.agents ?? [], [data]);
+  const inquiries = useMemo(() => data?.inquiries ?? [], [data]);
+  const assignments = useMemo(() => data?.assignments ?? [], [data]);
 
   const [editAgent, setEditAgent] = useState<Agent | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const agentName = useMemo(() => new Map(agents.map((a) => [a.id, a.name])), [agents]);
   const activeByAgent = useMemo(() => {
-    const m = new Map<string, Inquiry[]>();
+    const m = new Map<string, typeof inquiries>();
     for (const i of inquiries) {
       if (i.state === "assigned" && i.current_agent_id) {
         const arr = m.get(i.current_agent_id) ?? [];
@@ -71,39 +48,38 @@ export function AdminDashboard() {
     return m;
   }, [inquiries]);
 
-  const stats = useMemo(() => {
-    return {
+  const stats = useMemo(
+    () => ({
       total: inquiries.length,
       active: inquiries.filter((i) => i.state === "assigned").length,
       queued: inquiries.filter((i) => i.state === "queued").length,
       resolved: inquiries.filter((i) => i.state === "resolved").length,
       available: agents.filter((a) => a.status === "available").length,
-    };
-  }, [inquiries, agents]);
+    }),
+    [inquiries, agents],
+  );
 
   const log = useMemo(() => {
-    const byInquiry = new Map<string, Assignment[]>();
+    const byInquiry = new Map<string, typeof assignments>();
     for (const a of assignments) {
       const arr = byInquiry.get(a.inquiry_id) ?? [];
       arr.push(a);
       byInquiry.set(a.inquiry_id, arr);
     }
     for (const arr of byInquiry.values())
-      arr.sort((x, y) => new Date(x.assigned_at).getTime() - new Date(y.assigned_at).getTime());
+      arr.sort((x, y) => +new Date(x.assigned_at) - +new Date(y.assigned_at));
     return [...inquiries]
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
       .map((inq) => ({ inq, history: byInquiry.get(inq.id) ?? [] }));
   }, [inquiries, assignments]);
 
   async function toggleStatus(a: Agent) {
-    const next = a.status === "available" ? "away" : "available";
-    await sb.from("agents").update({ status: next }).eq("id", a.id);
-    fetch("/api/reconcile", { method: "POST" }).catch(() => {});
+    await api.setAgentStatus(a.id, a.status === "available" ? "away" : "available");
+    refetch();
   }
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-6">
-      {/* Stats */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat icon={Users} label="Agents available" value={`${stats.available}/${agents.length}`} />
         <Stat icon={Inbox} label="Active chats" value={stats.active} />
@@ -120,7 +96,6 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* Agents board / roster */}
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Agents</h2>
@@ -144,7 +119,13 @@ export function AdminDashboard() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <span className="truncate font-semibold">{a.name}</span>
-                      <button onClick={() => { setEditAgent(a); setDialogOpen(true); }} className="text-muted-foreground hover:text-foreground">
+                      <button
+                        onClick={() => {
+                          setEditAgent(a);
+                          setDialogOpen(true);
+                        }}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
                         <Pencil className="h-3 w-3" />
                       </button>
                     </div>
@@ -170,7 +151,6 @@ export function AdminDashboard() {
         </div>
       </section>
 
-      {/* Inquiry log */}
       <section>
         <h2 className="mb-3 text-lg font-semibold">
           Inquiry log <span className="font-normal text-muted-foreground">— assignment history</span>
@@ -237,7 +217,7 @@ export function AdminDashboard() {
         </div>
       </section>
 
-      <AgentEditDialog open={dialogOpen} onOpenChange={setDialogOpen} agent={editAgent} onSaved={refetchAgents} />
+      <AgentEditDialog open={dialogOpen} onOpenChange={setDialogOpen} agent={editAgent} onSaved={refetch} />
     </main>
   );
 }

@@ -10,6 +10,10 @@ export const REASSIGN_TIMEOUT_SECONDS = 30;
  *  The decision is server-timestamp based, so a coarse interval is fine. */
 export const RECONCILE_INTERVAL_MS = 3000;
 
+/** How often screens poll the in-memory backend for live updates. Each /api/data
+ *  poll also runs reconcile server-side, so this drives reassignment too. */
+export const POLL_INTERVAL_MS = 1500;
+
 /** Max AI listing recommendations shown to an agent at once. */
 export const MAX_RECOMMENDATIONS = 3;
 

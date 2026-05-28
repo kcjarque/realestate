@@ -5,10 +5,9 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Send, CheckCheck, Home, Loader2, Inbox, PanelLeft, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
-import { useRealtimeList } from "@/lib/hooks/use-realtime-list";
-import { useReconcileTicker } from "@/lib/hooks/use-reconcile";
-import { demoChannel } from "@/lib/channel/demo-channel";
+import { api, fetchData, fetchMessages } from "@/lib/api";
+import { usePoll } from "@/lib/hooks/use-poll";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { MessageList } from "@/components/chat/message-list";
 import { QueueList } from "./queue-list";
 import { RecommendationPanel } from "./recommendation-panel";
@@ -18,80 +17,37 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { Agent, Inquiry, Listing, Message } from "@/lib/types";
+import type { Message } from "@/lib/types";
 
 export function AgentWorkspace() {
   const agentId = String(useParams().agentId);
-  const sb = getSupabaseBrowser();
-  useReconcileTicker(true); // this screen drives the assignment engine
+  const { data, refetch: refetchData } = usePoll(fetchData, POLL_INTERVAL_MS);
 
-  const [agent, setAgent] = useState<Agent | null>(null);
-  useEffect(() => {
-    sb.from("agents").select("*").eq("id", agentId).maybeSingle().then(({ data }) => setAgent(data as Agent));
-    const ch = sb
-      .channel(`agent:${agentId}`)
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "agents", filter: `id=eq.${agentId}` },
-        (p) => setAgent(p.new as Agent),
-      )
-      .subscribe();
-    return () => {
-      sb.removeChannel(ch);
-    };
-  }, [agentId, sb]);
-
-  const { rows: allInquiries } = useRealtimeList<Inquiry>(
-    "inquiries",
-    async () => {
-      const { data } = await sb.from("inquiries").select("*");
-      return (data ?? []) as Inquiry[];
-    },
-    [agentId],
-  );
+  const agent = useMemo(() => data?.agents.find((a) => a.id === agentId) ?? null, [data, agentId]);
   const queue = useMemo(
-    () => allInquiries.filter((i) => i.current_agent_id === agentId && i.state === "assigned"),
-    [allInquiries, agentId],
+    () => (data?.inquiries ?? []).filter((i) => i.current_agent_id === agentId && i.state === "assigned"),
+    [data, agentId],
   );
-
-  const { rows: listings } = useRealtimeList<Listing>(
-    "listings",
-    async () => {
-      const { data } = await sb.from("listings").select("*").is("deleted_at", null);
-      return (data ?? []) as Listing[];
-    },
-    [],
-  );
+  const listings = useMemo(() => data?.listings ?? [], [data]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const [recsOpen, setRecsOpen] = useState(false);
+
   useEffect(() => {
-    if (queue.length === 0) {
-      setSelectedId(null);
-    } else if (!selectedId || !queue.some((q) => q.id === selectedId)) {
-      setSelectedId(queue[0].id);
-    }
+    if (queue.length === 0) setSelectedId(null);
+    else if (!selectedId || !queue.some((q) => q.id === selectedId)) setSelectedId(queue[0].id);
   }, [queue, selectedId]);
   const selected = queue.find((q) => q.id === selectedId) ?? null;
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { data: messagesData, refetch: refetchMessages } = usePoll<Message[]>(
+    () => (selected ? fetchMessages(selected.id) : Promise.resolve([])),
+    POLL_INTERVAL_MS,
+  );
+  const messages = useMemo(() => messagesData ?? [], [messagesData]);
   useEffect(() => {
-    if (!selected?.id) {
-      setMessages([]);
-      return;
-    }
-    const id = selected.id;
-    sb.from("messages")
-      .select("*")
-      .eq("inquiry_id", id)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => setMessages((data ?? []) as Message[]));
-    const unsub = demoChannel.subscribe(id, (m) =>
-      setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m])),
-    );
-    return () => unsub();
-  }, [selected?.id, sb]);
+    refetchMessages();
+  }, [selected?.id, refetchMessages]);
 
   const customerText = useMemo(
     () => messages.filter((m) => m.sender_type === "customer").map((m) => m.body).join(" "),
@@ -109,21 +65,22 @@ export function AgentWorkspace() {
     const body = composer.trim();
     if (!body || !selected) return;
     setComposer("");
-    await demoChannel.send({ inquiryId: selected.id, senderType: "agent", senderId: agentId, body });
+    await api.sendMessage(selected.id, "agent", body, agentId);
+    refetchMessages();
   }
 
   async function toggleStatus() {
     if (!agent) return;
     const next = agent.status === "available" ? "away" : "available";
-    await sb.from("agents").update({ status: next }).eq("id", agentId);
-    fetch("/api/reconcile", { method: "POST" }).catch(() => {});
+    await api.setAgentStatus(agentId, next);
+    refetchData();
     toast.success(next === "away" ? "You're now Away — new chats will skip you" : "You're now Available");
   }
 
   async function resolve() {
     if (!selected) return;
-    await sb.rpc("resolve_inquiry", { p_inquiry_id: selected.id });
-    fetch("/api/reconcile", { method: "POST" }).catch(() => {});
+    await api.resolveInquiry(selected.id);
+    refetchData();
     toast.success("Conversation resolved");
   }
 
@@ -139,7 +96,6 @@ export function AgentWorkspace() {
 
   return (
     <div className="flex h-[100dvh] flex-col">
-      {/* Top bar */}
       <header className="flex items-center justify-between gap-2 border-b bg-card px-3 py-2.5 sm:px-4">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Link href="/" className="shrink-0 text-muted-foreground hover:text-foreground">
@@ -182,18 +138,10 @@ export function AgentWorkspace() {
         </div>
       </header>
 
-      {/* Workspace: chat is always a flexible full-width pane. The queue (below lg)
-          and suggestions (below xl) collapse into slide-over drawers. */}
       <div className="relative flex flex-1 overflow-hidden">
-        {/* Drawer backdrops (each respects its drawer's breakpoint) */}
-        {queueOpen && (
-          <div className="absolute inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setQueueOpen(false)} />
-        )}
-        {recsOpen && (
-          <div className="absolute inset-0 z-20 bg-black/30 xl:hidden" onClick={() => setRecsOpen(false)} />
-        )}
+        {queueOpen && <div className="absolute inset-0 z-20 bg-black/30 lg:hidden" onClick={() => setQueueOpen(false)} />}
+        {recsOpen && <div className="absolute inset-0 z-20 bg-black/30 xl:hidden" onClick={() => setRecsOpen(false)} />}
 
-        {/* Left: queue (static on lg+, drawer below) */}
         <aside
           className={cn(
             "scroll-thin absolute inset-y-0 left-0 z-30 w-72 shrink-0 overflow-y-auto border-r bg-card transition-transform duration-200 lg:static lg:z-0 lg:translate-x-0",
@@ -216,7 +164,6 @@ export function AgentWorkspace() {
           />
         </aside>
 
-        {/* Center: conversation (always present, flexible) */}
         <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
           {selected ? (
             <>
@@ -272,7 +219,7 @@ export function AgentWorkspace() {
               </form>
             </>
           ) : (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
               <Inbox className="h-8 w-8" />
               <p className="text-sm">
                 {available
@@ -283,7 +230,6 @@ export function AgentWorkspace() {
           )}
         </section>
 
-        {/* Right: recommendations (static on xl+, drawer below) */}
         <aside
           className={cn(
             "absolute inset-y-0 right-0 z-30 flex w-80 shrink-0 flex-col overflow-hidden border-l bg-card transition-transform duration-200 xl:static xl:z-0 xl:translate-x-0",

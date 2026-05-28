@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { api } from "@/lib/api";
 
 // Visiting /chat with no session creates a fresh inquiry + session, then redirects.
 export default function NewChatPage() {
@@ -15,9 +15,7 @@ export default function NewChatPage() {
     started.current = true;
     const sessionId = crypto.randomUUID();
     const name = `Guest ${Math.floor(1000 + Math.random() * 9000)}`;
-    getSupabaseBrowser()
-      .rpc("start_inquiry", { p_session_id: sessionId, p_customer_name: name })
-      .then(() => router.replace(`/chat/${sessionId}`));
+    api.startInquiry(sessionId, name).then(() => router.replace(`/chat/${sessionId}`));
   }, [router]);
 
   return (
