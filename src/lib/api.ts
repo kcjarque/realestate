@@ -1,4 +1,4 @@
-import type { Agent, AgentStatus, Assignment, Inquiry, Listing, Message, SenderType } from "@/lib/types";
+import type { Agent, AgentStatus, Assignment, Inquiry, Listing, Message, MessageListing, SenderType } from "@/lib/types";
 
 export interface Snapshot {
   agents: Agent[];
@@ -31,8 +31,13 @@ async function action<T = unknown>(payload: Record<string, unknown>): Promise<T>
 export const api = {
   startInquiry: (sessionId: string, customerName?: string) =>
     action<{ inquiry: Inquiry }>({ type: "startInquiry", sessionId, customerName }),
-  sendMessage: (inquiryId: string, senderType: SenderType, body: string, senderId?: string | null) =>
-    action<{ message: Message }>({ type: "sendMessage", inquiryId, senderType, body, senderId }),
+  sendMessage: (
+    inquiryId: string,
+    senderType: SenderType,
+    body: string,
+    senderId?: string | null,
+    listing?: MessageListing | null,
+  ) => action<{ message: Message }>({ type: "sendMessage", inquiryId, senderType, body, senderId, listing }),
   resolveInquiry: (inquiryId: string) => action({ type: "resolveInquiry", inquiryId }),
   manualReassign: (inquiryId: string, agentId: string) => action({ type: "manualReassign", inquiryId, agentId }),
   setAgentStatus: (agentId: string, status: AgentStatus) => action({ type: "setAgentStatus", agentId, status }),

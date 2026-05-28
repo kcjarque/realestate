@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, Plus, Bed, Bath, Maximize2, MapPin, MessageSquarePlus } from "lucide-react";
+import { Sparkles, Send, Bed, Bath, Maximize2, MapPin, MessageSquarePlus } from "lucide-react";
 import { QUICK_TEMPLATES } from "@/lib/constants";
 import { recommendListings, parseSignals, describeSignals, hasSignals } from "@/lib/recommend";
 import type { Listing } from "@/lib/types";
@@ -8,21 +8,18 @@ import { formatPHP } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-function recMessage(l: Listing): string {
-  const beds = l.bedrooms != null ? `${l.bedrooms === 0 ? "studio" : `${l.bedrooms}BR`}, ` : "";
-  return `You might like "${l.title}" in ${l.city} — ${beds}${formatPHP(l.price)}.${l.description ? ` ${l.description}` : ""}`;
-}
-
 export function RecommendationPanel({
   customerText,
   listings,
   agentName,
   onInsert,
+  onSendListing,
 }: {
   customerText: string;
   listings: Listing[];
   agentName: string;
   onInsert: (text: string) => void;
+  onSendListing: (listing: Listing) => void;
 }) {
   const signals = parseSignals(customerText);
   const recs = recommendListings(customerText, listings);
@@ -98,10 +95,10 @@ export function RecommendationPanel({
               ))}
             </div>
             <button
-              onClick={() => onInsert(recMessage(listing))}
-              className="flex w-full items-center justify-center gap-1.5 border-t bg-muted/40 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              onClick={() => onSendListing(listing)}
+              className="flex w-full items-center justify-center gap-1.5 border-t bg-primary/5 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
             >
-              <Plus className="h-3.5 w-3.5" /> Insert into reply
+              <Send className="h-3.5 w-3.5" /> Send to customer
             </button>
           </div>
         ))}

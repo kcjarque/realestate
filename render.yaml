@@ -1,0 +1,13 @@
+# One-click deploy to Render (a single-instance Node host where the in-memory
+# store works — unlike Vercel's serverless runtime). Push this repo, then in
+# Render: New + → Blueprint → pick this repo. No database, no env vars needed.
+services:
+  - type: web
+    name: estateconnect
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

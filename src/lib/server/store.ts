@@ -6,6 +6,7 @@ import type {
   Inquiry,
   Listing,
   Message,
+  MessageListing,
   SenderType,
 } from "@/lib/types";
 
@@ -72,13 +73,27 @@ function seed(): DB {
     ["2BR Condo at SMDC Light Residences", "condo", "Mandaluyong", 6800000, 2, 1, 50, "available", ["https://placehold.co/600x400?text=Light+2BR"], "Connected to Boni MRT station. Resort-style amenities, ideal starter home."],
     ["5BR House at Greenmeadows", "house", "Quezon City", 48000000, 5, 5, 500, "available", ["https://placehold.co/600x400?text=Greenmeadows"], "Grand family residence in an exclusive QC village. Pool, garden, 4-car garage."],
   ];
+  // Real stock photos (Unsplash), pooled per property type.
+  const photoUrl = (id: string) => `https://images.unsplash.com/photo-${id}?w=800&q=70&auto=format&fit=crop`;
+  const PHOTOS: Record<Listing["type"], string[]> = {
+    condo: ["1545324418-cc1a3fa10c00", "1502672260266-1c1ef2d93688", "1560448204-e02f11c3d0e2", "1600566753086-00f18fb6b3ea", "1600607687939-ce8a6c25118c", "1580587771525-78b9dba3b914"],
+    house: ["1512917774080-9991f1c4c750", "1568605114967-8130f3a36994", "1600596542815-ffad4c1539a9", "1600585154340-be6161a56a0c", "1564013799919-ab600027ffc6", "1600047509807-ba8f99d2cdde"],
+    townhouse: ["1564013799919-ab600027ffc6", "1600585154340-be6161a56a0c", "1568605114967-8130f3a36994"],
+    lot: ["1493809842364-78817add7ffb", "1600573472550-8090b5e0745e"],
+  };
+  const counters: Record<string, number> = {};
   const ts = now();
-  const listings: Listing[] = rows.map((r) => ({
-    id: uid(),
-    title: r[0], type: r[1], city: r[2], price: r[3], bedrooms: r[4], bathrooms: r[5],
-    floor_area_sqm: r[6], status: r[7], image_urls: r[8], description: r[9],
-    created_at: ts, updated_at: ts, deleted_at: null,
-  }));
+  const listings: Listing[] = rows.map((r) => {
+    const pool = PHOTOS[r[1]];
+    const idx = counters[r[1]] ?? 0;
+    counters[r[1]] = idx + 1;
+    return {
+      id: uid(),
+      title: r[0], type: r[1], city: r[2], price: r[3], bedrooms: r[4], bathrooms: r[5],
+      floor_area_sqm: r[6], status: r[7], image_urls: [photoUrl(pool[idx % pool.length])], description: r[9],
+      created_at: ts, updated_at: ts, deleted_at: null,
+    };
+  });
 
   return { agents, inquiries: [], assignments: [], messages: [], listings };
 }
@@ -195,13 +210,20 @@ export function getInquiryBySession(sessionId: string): Inquiry | undefined {
   return db.inquiries.find((i) => i.session_id === sessionId);
 }
 
-export function sendMessage(input: { inquiryId: string; senderType: SenderType; senderId?: string | null; body: string }): Message {
+export function sendMessage(input: {
+  inquiryId: string;
+  senderType: SenderType;
+  senderId?: string | null;
+  body: string;
+  listing?: MessageListing | null;
+}): Message {
   const msg: Message = {
     id: uid(),
     inquiry_id: input.inquiryId,
     sender_type: input.senderType,
     sender_id: input.senderId ?? null,
     body: input.body,
+    listing: input.listing ?? null,
     created_at: now(),
   };
   db.messages.push(msg);

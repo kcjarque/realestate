@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
           senderType: p.senderType,
           senderId: p.senderId ?? null,
           body: p.body,
+          listing: p.listing ?? null,
         }),
       });
     case "resolveInquiry":

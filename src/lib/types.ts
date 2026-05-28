@@ -39,12 +39,26 @@ export interface Assignment {
 
 export type SenderType = "customer" | "agent";
 
+// A listing snapshot attached to a message, rendered as a rich card in chat.
+export interface MessageListing {
+  id: string;
+  title: string;
+  type: string;
+  city: string;
+  price: number;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  floor_area_sqm: number | null;
+  image_url: string | null;
+}
+
 export interface Message {
   id: string;
   inquiry_id: string;
   sender_type: SenderType;
   sender_id: string | null;
   body: string;
+  listing?: MessageListing | null;
   created_at: string;
 }
 

@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { Message } from "@/lib/types";
+import type { Listing, Message, MessageListing } from "@/lib/types";
 
 export function AgentWorkspace() {
   const agentId = String(useParams().agentId);
@@ -82,6 +82,24 @@ export function AgentWorkspace() {
     await api.resolveInquiry(selected.id);
     refetchData();
     toast.success("Conversation resolved");
+  }
+
+  async function sendListing(listing: Listing) {
+    if (!selected) return;
+    const card: MessageListing = {
+      id: listing.id,
+      title: listing.title,
+      type: listing.type,
+      city: listing.city,
+      price: listing.price,
+      bedrooms: listing.bedrooms,
+      bathrooms: listing.bathrooms,
+      floor_area_sqm: listing.floor_area_sqm,
+      image_url: listing.image_urls[0] ?? null,
+    };
+    setRecsOpen(false);
+    await api.sendMessage(selected.id, "agent", "", agentId, card);
+    refetchMessages();
   }
 
   if (!agent) {
@@ -251,6 +269,7 @@ export function AgentWorkspace() {
                   insert(text);
                   setRecsOpen(false);
                 }}
+                onSendListing={sendListing}
               />
             ) : (
               <div className="p-6 text-center text-sm text-muted-foreground">
